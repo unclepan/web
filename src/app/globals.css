@@ -1,0 +1,396 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/*
+  ---break---
+*/
+/* 使用 class 策略的 dark mode（跟随 html.dark，而非 prefers-color-scheme）。
+   写法与 docs 工程保持一致：html 自身与其后代都会命中 dark: 变体。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Simple template design tokens.
+  Ported from the original Tailwind v3 `tailwind.config.js` into the
+  Tailwind v4 CSS-first `@theme` configuration.
+*/
+@theme {
+  --color-gray-100: #fbfbfb;
+  --color-gray-200: #eaeaea;
+  --color-gray-300: #dfdfdf;
+  --color-gray-400: #999999;
+  --color-gray-500: #7f7f7f;
+  --color-gray-600: #666666;
+  --color-gray-700: #4c4c4c;
+  --color-gray-800: #333333;
+  --color-gray-900: #191919;
+
+  --color-blue-100: #e6f0fd;
+  --color-blue-200: #cce2fc;
+  --color-blue-300: #99c5fa;
+  --color-blue-400: #66a9f7;
+  --color-blue-500: #338cf5;
+  --color-blue-600: #0070f4;
+  --color-blue-700: #0064da;
+  --color-blue-800: #0059c2;
+  --color-blue-900: #004391;
+
+  --color-teal-100: #e6fffa;
+  --color-teal-200: #b2f5ea;
+  --color-teal-300: #81e6d9;
+  --color-teal-400: #4fd1c5;
+  --color-teal-500: #3abab4;
+  --color-teal-600: #319795;
+  --color-teal-700: #2c7a7b;
+  --color-teal-800: #285e61;
+  --color-teal-900: #234e52;
+
+  /* `white` colour alias used by the template (e.g. hover:bg-card) */
+  --color-white-100: #ffffff;
+
+  --font-inter:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --shadow-xs: 0 0 0 1px rgba(0, 0, 0, 0.16);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04),
+    0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.04),
+    0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.12),
+    0 10px 10px -5px rgba(0, 0, 0, 0.02);
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-4xl: 2.625rem;
+  --text-5xl: 3.25rem;
+  --text-6xl: 5.5rem;
+
+  --tracking-tighter: -0.02em;
+  --tracking-tight: -0.01em;
+  --tracking-wide: 0.01em;
+  --tracking-wider: 0.02em;
+  --tracking-widest: 0.4em;
+
+  --leading-tighter: 1.125;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+
+  --scale-98: 0.98;
+
+  /* 不要在这里加 `--opacity-*`！
+     Tailwind v4 会把 `/90` 这类透明度修饰符解析成 theme 里的 `--opacity-90`，
+     并原样塞进 color-mix()：`color-mix(in oklab, var(--primary) var(--opacity-90), transparent)`。
+     而这里的 `.9` 是**数字**，color-mix 要求的是**百分比**（`90%` 才合法），
+     浏览器会判定整条声明无效 → background-color 回落到 initial（transparent），
+     于是 hover 时按钮底色消失、看起来「和背景一个颜色」。
+     项目里也没有用 `opacity-90` 工具类，故直接删掉该 token。 */
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+}
+
+.-z-1 {
+  z-index: -1;
+}
+
+/* ---------------------------------------------------------------------------
+   Typography & component utilities (ported from additional-styles/*)
+   Wrapped in @layer components so utility classes (e.g. pl-10) can override
+   the @apply'd padding from .form-input etc.
+--------------------------------------------------------------------------- */
+@layer components {
+.h1 {
+  @apply text-4xl font-extrabold leading-tighter tracking-tighter md:text-5xl;
+}
+.h2 {
+  @apply text-3xl font-extrabold leading-tight tracking-tighter md:text-4xl;
+}
+.h3 {
+  @apply text-2xl font-bold leading-snug tracking-tight;
+}
+.h4 {
+  @apply text-xl font-extrabold leading-snug tracking-tight;
+}
+
+.btn,
+.btn-sm {
+  @apply inline-flex items-center justify-center rounded border border-transparent font-medium leading-snug transition duration-150 ease-in-out;
+}
+.btn {
+  @apply px-8 py-3 shadow-lg;
+}
+.btn-sm {
+  @apply px-4 py-2 shadow;
+}
+
+.form-input,
+.form-checkbox {
+  /* 输入框底色跟随 background，暗色下相对 card 呈轻微「内凹」层次 */
+  @apply rounded border border-border bg-background focus:border-ring;
+}
+.form-input {
+  @apply px-4 py-3 placeholder:text-muted-foreground;
+}
+.form-checkbox {
+  @apply text-foreground;
+}
+.form-input:focus,
+.form-checkbox:focus {
+  @apply ring-0;
+}
+} /* end @layer components */
+
+/* ---------------------------------------------------------------------------
+   AOS entrance animations
+--------------------------------------------------------------------------- */
+/*
+  CSS 兜底：某些移动端浏览器上 AOS 的 JS 可能因为脚本延迟、
+  资源加载顺序等原因未能及时给元素加上 `.aos-animate` 类，
+  导致带 [data-aos] 的元素一直 opacity:0 → 页面首屏空白。
+  这里通过一个延迟触发的 keyframe，在 2s 后强制把元素显现出来。
+  一旦 AOS 正常执行、加上 .aos-animate，AOS 自身的 transition
+  会立即把元素带到最终状态，用户体验不受影响。
+*/
+@keyframes aos-fallback-show {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+html:not(.no-js) [data-aos]:not(.aos-animate) {
+  animation: aos-fallback-show 0.01s linear 2s forwards;
+}
+/* 用户偏好减少动效时，直接显示，不做任何入场动画 */
+@media (prefers-reduced-motion: reduce) {
+  html:not(.no-js) [data-aos] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
+/* 收窄 AOS 默认位移：内置各方向都是 100px，这里改成 10px。
+   覆盖项目实际用到的四种方向；其余动画类型无需在此覆盖。 */
+@media screen {
+  html:not(.no-js) [data-aos="fade-up"] { transform: translate3d(0, 10px, 0); }
+  html:not(.no-js) [data-aos="fade-down"] { transform: translate3d(0, -10px, 0); }
+  html:not(.no-js) [data-aos="fade-right"] { transform: translate3d(-10px, 0, 0); }
+  html:not(.no-js) [data-aos="fade-left"] { transform: translate3d(10px, 0, 0); }
+}
+
+/* ---------------------------------------------------------------------------
+   Ecosystem tag cloud (about page) — horizontal marquee
+   Ported from docs/public/css/additional-styles/theme.css
+   The track is the 768px (max-w-3xl) container, NOT the 432px circle:
+   tags fly in behind the left fade, cross the circle, exit behind the right one.
+--------------------------------------------------------------------------- */
+@keyframes tagsmove {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(768px);
+  }
+}
+
+@layer components {
+.tags-animation {
+  animation: tagsmove 30000ms linear infinite;
+}
+/* Negative delays stagger tags along the track: -0.1 ≈ 76.8px right of origin */
+.tags-1 { animation-delay: calc(30000ms * -0.1); }
+.tags-2 { animation-delay: calc(30000ms * -0.16); }
+.tags-3 { animation-delay: calc(30000ms * -0.23); }
+.tags-4 { animation-delay: calc(30000ms * -0.27); }
+.tags-5 { animation-delay: calc(30000ms * -0.44); }
+.tags-6 { animation-delay: calc(30000ms * -0.55); }
+.tags-7 { animation-delay: calc(30000ms * -0.63); }
+.tags-8 { animation-delay: calc(30000ms * -0.73); }
+.tags-9 { animation-delay: calc(30000ms * -0.76); }
+.tags-10 { animation-delay: calc(30000ms * -0.8); }
+}
+/* Reduced motion: park the tags instead of flying them across */
+@media (prefers-reduced-motion: reduce) {
+  .tags-animation {
+    animation: none !important;
+  }
+}
+
+/*
+  ---break---
+*/
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+  ---break---
+*/
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+/*
+  ---break---
+*/
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/*
+  ---break---
+*/
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Custom scrollbar
+--------------------------------------------------------------------------- */
+.scrollbar-thin {
+  scrollbar-width: none;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  /* --border 是 oklch，不能再用 hsl() 包裹（原写法为无效值，滑块恒透明） */
+  background-color: var(--border);
+}

@@ -1,0 +1,276 @@
+/**
+ * Editor.js 主题覆盖
+ *
+ * Editor.js 自带一整套 `.ce-*` / `.cdx-*` 类名，不认 Tailwind，
+ * 默认视觉（蓝边、圆角、系统字体）跟后台的 shadcn/mosaic 风格是两套。
+ * 这里用 CSS Module + `:global()` 把它的关键元素映射到项目 token。
+ *
+ * 全部走 `globals.css` 里的语义变量（--background / --foreground / --muted /
+ * --muted-foreground / --border / --ring），**明暗两态自动跟随** ——
+ * 项目是 `class` 策略的 dark mode（`html.dark`），变量在 :root 与 .dark 各定义一份。
+ *
+ * 只覆盖「不改就明显出戏」的部分；Editor.js 内部的布局/动画逻辑不碰，
+ * 否则升级版本容易碎。
+ */
+
+/* ── 容器：卡片外壳，与后台其它卡片一致 ───────────────────── */
+.scope {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+
+/* ── 正文区：内边距 + 去掉 Editor.js 默认的蓝色聚焦外框 ────── */
+.scope :global(.codex-editor) {
+  padding-inline: 0;
+}
+
+.scope :global(.codex-editor--narrow .codex-editor__redactor) {
+  margin-right: 0;
+}
+
+.scope :global(.codex-editor__redactor) {
+  padding-bottom: 1.5rem !important;
+}
+
+/* ── 块：聚焦时用 muted 而不是 Editor.js 自带的浅蓝 ─────────── */
+.scope :global(.ce-block--focused) {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+  border-radius: 6px;
+}
+
+/* ── 标题 / 段落 / 列表 ──────────────────────────────────── */
+.scope :global(.ce-header) {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding-block: 0.35em 0.2em;
+}
+
+.scope :global(.ce-paragraph) {
+  color: var(--foreground);
+}
+
+.scope :global(.cdx-list),
+.scope :global(.cdx-list__item) {
+  color: var(--foreground);
+}
+
+/* ── 代码块：刻意保留深底（与前台 ContentBlockRenderer 一致）── */
+.scope :global(.ce-code) {
+  background: #1e1e1e;
+  color: #e6e6e6;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scope :global(.ce-code__textarea) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: transparent;
+  color: inherit;
+}
+
+.scope :global(.ce-code__select) {
+  background: #2a2a2a;
+  color: #e6e6e6;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* ── callout（借 @editorjs/warning 承载）───────────────────── */
+.scope :global(.cdx-warning) {
+  border-radius: 6px;
+}
+
+.scope :global(.cdx-warning__message) {
+  color: var(--foreground);
+}
+
+/* ── 表格 ─────────────────────────────────────────────────── */
+.scope :global(.tc-wrap) {
+  border-radius: 6px;
+}
+
+.scope :global(.tc-table) {
+  border-color: var(--border);
+}
+
+.scope :global(.tc-cell) {
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+.scope :global(.tc-row--selected .tc-cell) {
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+}
+
+/* ── 输入框（表格/图片里那些 .cdx-input）───────────────────── */
+.scope :global(.cdx-input) {
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.scope :global(.cdx-input:focus) {
+  border-color: var(--ring);
+  outline: none;
+}
+
+.scope :global(.cdx-input::placeholder) {
+  color: var(--muted-foreground);
+}
+
+/* ── 按钮 ─────────────────────────────────────────────────── */
+.scope :global(.cdx-button) {
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.scope :global(.cdx-button:hover) {
+  background: var(--muted);
+}
+
+.scope :global(.ce-inline-tool) {
+  color: var(--foreground);
+}
+
+.scope :global(.ce-inline-tool--active) {
+  color: var(--ring);
+}
+
+/* ── 左侧 + 号 / 设置按钮 ─────────────────────────────────── */
+.scope :global(.ce-toolbar__plus),
+.scope :global(.ce-toolbar__settings-btn) {
+  color: var(--muted-foreground);
+}
+
+.scope :global(.ce-toolbar__plus:hover),
+.scope :global(.ce-toolbar__settings-btn:hover) {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+/* ── 弹出层（块选择 / 转换工具栏）：对齐 shadcn 弹层观感 ────── */
+.scope :global(.ce-popover),
+.scope :global(.ce-conversion-toolbar) {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.08),
+    0 2px 4px -2px rgb(0 0 0 / 0.06);
+}
+
+.scope :global(.ce-popover__item) {
+  color: var(--foreground);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.scope :global(.ce-popover__item:hover),
+.scope :global(.ce-popover__item--active) {
+  background: var(--muted);
+}
+
+.scope :global(.ce-popover__item-icon) {
+  color: var(--muted-foreground);
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+
+.scope :global(.ce-popover__item-title) {
+  color: var(--foreground);
+  font-weight: 400;
+}
+
+.scope :global(.ce-popover__item-secondary) {
+  color: var(--muted-foreground);
+}
+
+/* ── 内联工具栏 ───────────────────────────────────────────── */
+.scope :global(.ce-inline-toolbar) {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scope :global(.ce-inline-toolbar__dropdown) {
+  border-color: var(--border);
+}
+
+/* ── 图片工具 ─────────────────────────────────────────────── */
+.scope :global(.image-tool) {
+  color: var(--foreground);
+}
+
+.scope :global(.image-tool__caption) {
+  color: var(--muted-foreground);
+}
+
+.scope :global(.image-tool__image-preloader),
+.scope :global(.image-tool--empty) {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  color: var(--muted-foreground);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   只读块（ReadonlyBlock.ts）—— 无 Editor.js 插件的 4 种 ContentBlock
+   保留原始 JSON，编辑时是文本框，保存时原样回写
+   ═══════════════════════════════════════════════════════════ */
+.readonly {
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.readonlySummary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  user-select: none;
+}
+
+.readonlyTextarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.readonlyTextarea:focus {
+  border-color: var(--ring);
+  outline: none;
+}
+
+.readonlyError {
+  margin-top: 6px;
+  color: #dc2626;
+  font-size: 12px;
+}

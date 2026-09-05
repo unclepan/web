@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────
+# Nginx 配置示例 —— uicu.club / www.uicu.club（web 站点 + API 反代）
+#
+# 此文件部署在服务器的 /etc/nginx/sites-available/ 下，
+# Nginx 将 uicu.club / www.uicu.club 的请求按路径分流：
+#   ├─ /api/auth/*      → 前端 Next.js（端口 8000，前端 Route Handler）
+#   ├─ /api/*（其余）    → 后端 server 网关（端口 8001，剥掉 /api 前缀）
+#   ├─ /uploads/*       → 后端 server 网关（端口 8001，文件上传/下载）
+#   └─ 其他路径          → 前端 Next.js（端口 8000）
+#
+# 后端 server 项目独立部署在 ~/app/server，由它对外暴露 :8001。
+#
+# 部署步骤（在服务器上执行）：
+#   1. sudo cp nginx-web.conf.example /etc/nginx/sites-available/web
+#   2. sudo ln -s /etc/nginx/sites-available/web /etc/nginx/sites-enabled/
+#   3. sudo certbot --nginx -d uicu.club -d www.uicu.club   （申请 HTTPS 证书）
+#   4. sudo nginx -t && sudo systemctl reload nginx
+# ─────────────────────────────────────────────────────────────
+
+# ========== uicu.club / www.uicu.club HTTPS 443 ==========
+server {
+    listen 443 ssl http2;
+    server_name uicu.club www.uicu.club;
+
+    # ACME 证书校验目录（与主站共用）
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # ── Auth Route Handler：送前端 Next.js（端口 8000）────
+    # /api/auth/{login,logout,refresh} 是 Next.js Route Handler，
+    # 内部 SSR fetch 后端 + 写 Set-Cookie，后端网关无 /auth 路由。
+    # 结尾不要斜杠，保留完整 /api/auth/login 路径给前端。
+    location /api/auth/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ── API 请求：转发到后端网关（端口 8001，剥掉 /api 前缀）────
+    # 结尾的 / 必须加：/api/user/xxx → /user/xxx 才能匹配网关路由。
+    location /api/ {
+        proxy_pass http://127.0.0.1:8001/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # ── 文件上传/下载：转发到后端网关（端口 8001）────
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 120s;
+    }
+
+    # ── 其余请求：转发到前端 Next.js（端口 8000）────
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ── SSL 证书 ──
+    ssl_certificate /etc/letsencrypt/live/uicu.club/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/uicu.club/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+}
+
+# ========== uicu.club / www.uicu.club HTTP 80 强制跳转 HTTPS ==========
+server {
+    listen 80;
+    server_name uicu.club www.uicu.club;
+    return 301 https://$host$request_uri;
+}

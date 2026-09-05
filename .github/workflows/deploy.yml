@@ -1,0 +1,315 @@
+# ─────────────────────────────────────────────────────────────
+# CD Workflow: 构建 Docker 镜像并部署到生产服务器
+# ─────────────────────────────────────────────────────────────
+# 触发时机：向 main 分支 push 代码（且改动了源码/配置/Docker 相关路径）
+#
+# 流程概览：
+#   push main
+#      │
+#      ▼
+#   ┌──────────────────────────────────┐
+#   │ Job 1  build-and-push (Ubuntu)   │
+#   │   checkout → buildx → 登录 GHCR  │
+#   │   → 构建 1 个镜像打 2 个 tag     │
+#   │     :latest（滚动）              │
+#   │     :main-<sha>（不可变，可回滚）│
+#   └─────────────┬────────────────────┘
+#                  │ outputs: image, tag_sha
+#                  ▼
+#   ┌──────────────────────────────────┐
+#   │ Job 2  deploy (Ubuntu)           │
+#   │   写 SSH key → checkout          │
+#   │   → scp docker-compose.yml       │
+#   │   → ssh 写 .env                  │
+#   │   → ssh: docker compose          │
+#   │     pull + up -d                 │
+#   │   → 删 SSH key                   │
+#   └──────────────────────────────────┘
+#                  │
+#                  ▼
+#            生产环境 = 新版本
+#
+# 与后端 server 项目共用同一台服务器：
+#   - server 网关容器：宿主机 8001 → 容器 8001，部署目录 ~/app/server
+#       · Nginx 将 uicu.club / www.uicu.club 的 /api、/uploads 转发到 8001
+#       · 本 web 容器通过 host.docker.internal:8001 访问网关（见 next.config.ts rewrites）
+#   - web 容器：宿主机 8000 → 容器 3000，部署目录 ~/app/web
+#   - Nginx 根据路径分流：/api、/uploads → 后端；其余 → 前端
+#
+# 远端服务器首次部署需手工准备：
+#   - 安装 Docker ≥ 20.10（自带 docker compose v2 插件）
+#   - 创建工作目录：mkdir -p ~/app/web
+#   - .env 由本流水线写入，无需手工管理
+#
+# ── Secrets 说明 ─────────────────────────────────────────────
+# 需要手动配置（Settings → Secrets and variables → Actions）：
+#   DEPLOY_SSH_HOST           远端服务器 IP / 域名
+#   DEPLOY_SSH_USER           SSH 用户名（如 work）
+#   DEPLOY_SSH_PRIVATE_KEY    SSH 私钥（对应远端 ~/.ssh/authorized_keys 的公钥）
+#   DEPLOY_GHCR_USERNAME      远端拉镜像用的 GitHub 用户名
+#   DEPLOY_GHCR_TOKEN         远端拉镜像用的 PAT（read:packages 权限即可）
+#   DEPLOY_ENV_FILE           远端容器的 .env 文件完整内容
+#   ── 以下三个仅在构建镜像时通过 build-args 注入（NEXT_PUBLIC_* 是构建期内联变量）──
+#   ALI_CAPTCHA_PREFIX        阿里云验证码身份标（.env.local 的 NEXT_PUBLIC_ALI_CAPTCHA_PREFIX）
+#   ALI_CAPTCHA_SCENE_ID      阿里云验证码场景 ID（NEXT_PUBLIC_ALI_CAPTCHA_SCENE_ID）
+#   ALI_CAPTCHA_REGION        阿里云验证码地域 cn/sgp（NEXT_PUBLIC_ALI_CAPTCHA_REGION）
+#
+
+# 无需手动配置（GitHub Actions 自动提供）：
+#   secrets.GITHUB_TOKEN      GitHub 自动颁发的临时 Token，每次运行自动创建
+#                             权限由下方 permissions 字段控制，无需额外设置
+# ─────────────────────────────────────────────────────────────
+name: deploy
+
+# ── 触发条件 ────────────────────────────────────────────────
+on:
+  # push 事件：代码推送到指定分支时触发
+  # 其他可选事件：pull_request（PR 时触发）、schedule（定时触发）、
+  #   workflow_dispatch（手动触发）、release（发布时触发）等
+  push:
+    # branches: 限定触发分支，只有推送到 main 分支才触发
+    #   支持通配符，如 'release/**' 匹配 release/1.0、release/hotfix 等
+    branches:
+      - main
+    # paths: 文件路径过滤器（白名单模式）
+    #   只有匹配列表中路径的文件发生变更时才触发 workflow
+    #   作用：避免改了 README / 文档等无关文件也跑一次完整部署流程
+    #   通配符说明：
+    #     **  = 匹配任意层级目录（含零层）
+    #     *   = 匹配单层目录中的任意字符（不含 /）
+    #     无通配符 = 精确匹配单个文件
+    paths:
+      - '.github/workflows/**'     # workflow 自身改动（含子目录）
+      - 'src/**'                   # 源码目录（所有子目录和文件）
+      - 'public/**'                # 静态资源（图片、字体、CSS 等）
+      - 'package.json'             # 依赖声明（新增/升级依赖需重新构建）
+      - 'pnpm-lock.yaml'           # lockfile（依赖版本锁定变更）
+      - 'pnpm-workspace.yaml'      # pnpm monorepo 配置
+      - 'next.config.ts'           # Next.js 构建配置（影响构建产物）
+      - 'Dockerfile'               # Docker 镜像构建文件（构建逻辑变更）
+      - '.dockerignore'            # Docker 构建忽略规则
+      - 'docker-compose.yml'       # 容器编排配置（服务定义变更）
+
+# ── 并发控制 ────────────────────────────────────────────────
+# 同一时间 main 分支只允许一个部署在跑
+# 连续 push 两次时，会取消前一次正在进行的部署，避免老镜像覆盖新镜像
+concurrency:
+  # group: 并发组名称，同组内同一时间只允许一个 workflow 运行
+  #   命名规则：deploy-{分支名}，确保不同分支的部署互不干扰
+  group: deploy-main
+  # cancel-in-progress: 当同一组有新 workflow 触发时，是否取消正在运行的旧 workflow
+  #   true  = 取消旧的，立即运行新的（适合快速迭代、可安全中断的任务）
+  #   false = 让旧的跑完再跑新的（部署/迁移等不能中断的任务必须用 false）
+  #   部署场景必须用 false：镜像拉取中途被取消会导致层下载不完整，
+  #   下次 pull 可能报错或卡顿，"The operation was canceled" 即源于此
+  cancel-in-progress: false
+
+# ── 全局环境变量（所有 job 共用）────────────────────────────
+env:
+  # REGISTRY: 镜像仓库地址
+  #   ghcr.io = GitHub Container Registry，GitHub 自带的容器镜像仓库
+  #   优势：无需额外申请 Docker Hub 账号，与 GitHub 仓库深度集成
+  #   其他可选值：docker.io（Docker Hub）、registry.gitlab.com 等
+  REGISTRY: ghcr.io
+  # IMAGE_NAME: 镜像名称，格式为 owner/repo（全部小写）
+  #   ${{ github.repository }} 是 GitHub Actions 内置上下文变量
+  #   自动解析为当前仓库的 owner/name，如 unclepan/web
+  #   GHCR 强制要求镜像名全小写，后续步骤会做转换
+  IMAGE_NAME: ${{ github.repository }}
+
+# ── 任务定义 ────────────────────────────────────────────────
+jobs:
+  # ============================================================
+  # Job 1：构建 Docker 镜像并推送到 GHCR
+  # ============================================================
+  build-and-push:
+    name: build & push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # permissions: 授予 GITHUB_TOKEN 的权限范围（最小权限原则）
+    permissions:
+      contents: read       # 允许 checkout 拉取仓库代码
+      packages: write      # 允许推送镜像到 GHCR（GitHub Packages）
+
+    # outputs: 定义此 Job 的输出变量，供下游 Job 通过 needs 引用
+    outputs:
+      image: ${{ steps.meta.outputs.image }}       # 完整镜像地址（不含 tag）
+      tag_sha: ${{ steps.meta.outputs.tag_sha }}   # 不可变 tag，如 main-abc1234
+
+    steps:
+      # Step 1: 拉取仓库代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Step 2: 启用 Docker Buildx（构建缓存 / 多平台 / 并行 stage）
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 3: 登录 GHCR（推镜像需要）
+      #   password: GITHUB_TOKEN 有 packages:write 权限即可
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 4: 计算镜像地址和 tag
+      #   ${IMAGE_NAME,,} = Bash 参数扩展转为全小写（GHCR 强制要求）
+      #   ${GITHUB_SHA::7} = 取前 7 位短 SHA
+      - name: Compute image meta
+        id: meta
+        run: |
+          IMAGE_LC="${REGISTRY}/${IMAGE_NAME,,}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "image=${IMAGE_LC}"           >> "$GITHUB_OUTPUT"
+          echo "tag_sha=main-${SHORT_SHA}"   >> "$GITHUB_OUTPUT"
+
+      # Step 5: 构建 & 推送镜像
+      #   一次构建打两个 tag：
+      #     :latest        滚动 tag，永远指向最新版
+      #     :main-<sha>    不可变 tag，可精确回滚
+      #   cache-from/to: type=gha 使用 GitHub Actions Cache（免费 10GB）
+      #     mode=max 缓存所有层（包括多阶段中间层）
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag_sha }}
+          # 构建期内联的 NEXT_PUBLIC_* 变量，必须由 build-args 传入真实值
+          build-args: |
+            NEXT_PUBLIC_ALI_CAPTCHA_PREFIX=${{ secrets.ALI_CAPTCHA_PREFIX }}
+            NEXT_PUBLIC_ALI_CAPTCHA_SCENE_ID=${{ secrets.ALI_CAPTCHA_SCENE_ID }}
+            NEXT_PUBLIC_ALI_CAPTCHA_REGION=${{ secrets.ALI_CAPTCHA_REGION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================
+  # Job 2：SSH 登录服务器，拉取新镜像并滚动重启
+  # ============================================================
+  deploy:
+    name: deploy to server
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # 拉镜像可能因网络抖动重试多次，设 90 分钟留足余量
+    timeout-minutes: 90
+
+    steps:
+      # Step 1: 配置 SSH 私钥
+      #   chmod 600: SSH 要求私钥权限严格，否则拒绝使用
+      #   ssh-keyscan -H: 提前抓取服务器公钥指纹，避免首次连接的交互式确认
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.DEPLOY_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      # Step 2: 拉取仓库代码（需要 docker-compose.yml 上传到服务器）
+      #   即使 Job 1 已经 checkout，不同 Job 运行在不同虚拟机上，需重新拉取
+      - name: Checkout (for docker-compose.yml)
+        uses: actions/checkout@v4
+
+      # Step 3: 同步 docker-compose.yml 到服务器
+      #   先在远端 mkdir -p 确保目录存在，再 scp 覆盖上传
+      #   效果：改了 compose 配置不用手动登录服务器更新，CI 自动覆盖
+      - name: Sync docker-compose.yml to remote
+        run: |
+          ssh -i ~/.ssh/id_rsa "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" "mkdir -p ~/app/web"
+          scp -i ~/.ssh/id_rsa docker-compose.yml \
+            "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}:~/app/web/docker-compose.yml"
+
+      # Step 4: 写入 .env 到服务器
+      #   heredoc <<'EOF'（带引号）: 禁止 shell 本地展开 $ 变量，原样传输
+      #   敏感配置只在 GitHub Secrets 和服务器本地存在，永不入 Git 仓库
+      - name: Write .env to remote
+        run: |
+          ssh -i ~/.ssh/id_rsa "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" \
+            "cat > ~/app/web/.env" <<'EOF'
+          ${{ secrets.DEPLOY_ENV_FILE }}
+          EOF
+
+      # Step 5: 登录 GHCR → 写入镜像版本 → 拉镜像 → 滚动重启 → 清理旧镜像
+      #   env: 步骤级环境变量，仅在此步骤中可用
+      #     IMAGE:   完整镜像地址（如 ghcr.io/unclepan/web），来自 Job 1 输出
+      #     TAG_SHA: 不可变 tag（如 main-abc1234），来自 Job 1 输出
+      - name: Pull image & restart via docker compose
+        env:
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
+          TAG_SHA: ${{ needs.build-and-push.outputs.tag_sha }}
+        run: |
+          # ssh 参数说明：
+          #   -i ~/.ssh/id_rsa   → 指定私钥文件路径
+          #   bash -se           → -s: 从 stdin 读取命令；-e: 任何命令失败立即退出
+          #   <<EOF ... EOF      → Here Document：将多行脚本通过 SSH 传入远端 bash 执行
+          ssh -i ~/.ssh/id_rsa "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" bash -se <<EOF
+            # 严格模式：任何命令失败立即退出、未定义变量报错、管道中任一失败视为整体失败
+            set -euo pipefail
+
+            cd ~/app/web
+
+            # 1) 登录 GHCR
+            #    --password-stdin: 从 stdin 读密码，避免密码出现在 ps aux 中
+            echo "${{ secrets.DEPLOY_GHCR_TOKEN }}" | \
+              docker login ghcr.io -u "${{ secrets.DEPLOY_GHCR_USERNAME }}" --password-stdin
+
+            # 2) 写入镜像版本到 .env
+            #    先删旧行再追加新行，避免重复累积
+            #    docker-compose.yml 中用 \${IMAGE} 占位符引用此变量
+            sed -i '/^IMAGE=/d' .env
+            echo "IMAGE=${IMAGE}:${TAG_SHA}" >> .env
+
+            # 3) 拉取新镜像（带重试 + 卡顿超时检测）
+            #    背景：从国内服务器拉 GHCR 镜像常因网络抖动卡死在
+            #      "Downloading 12.58MB" 不报错也不退出，最终被 Job 超时取消。
+            #    策略：用 timeout 命令给单次 pull 设硬性上限（PULL_TIMEOUT 秒），
+            #      卡住即杀进程退出非零码，外层 for 循环最多重试 PULL_RETRIES 次。
+            #    124 退出码 = 命令因超时被杀；其它非零码 = 网络错误 / 鉴权失败等
+            PULL_RETRIES=5
+            PULL_TIMEOUT=600
+            PULL_OK=0
+            for i in \$(seq 1 "\$PULL_RETRIES"); do
+              echo "==> docker compose pull 第 \${i}/\${PULL_RETRIES} 次尝试（单次上限 \${PULL_TIMEOUT}s）"
+              # set +e: 临时关闭 errexit，让 timeout 失败时不直接退出脚本，
+              #         这样才能用 \$? 正确捕获退出码
+              set +e
+              timeout "\${PULL_TIMEOUT}" docker compose pull
+              rc=\$?
+              set -e
+              if [ "\$rc" -eq 0 ]; then
+                PULL_OK=1
+                echo "==> pull 成功"
+                break
+              fi
+              echo "==> pull 失败（退出码 \${rc}），2s 后重试..." >&2
+              sleep 2
+            done
+            if [ "\$PULL_OK" -ne 1 ]; then
+              echo "==> pull 已重试 \${PULL_RETRIES} 次仍失败，终止部署" >&2
+              exit 1
+            fi
+
+            # 4) 滚动重启
+            #    -d: 后台运行，检测到镜像 tag 变更后自动 stop 旧容器 → recreate 新容器
+            docker compose up -d
+
+            # 5) 清理悬挂镜像
+            #    -f: 强制删除，被替换的旧 :latest 镜像会变成 dangling，此命令清理之
+            docker image prune -f
+
+            # 6) 注销 GHCR
+            #    || true: 即使 logout 失败也继续（避免凭证残留成为安全隐患）
+            docker logout ghcr.io || true
+          EOF
+
+      # Step 6: 清理临时 SSH 私钥（安全收尾）
+      #   if: always() → 无论前面步骤成功、失败还是被取消都执行
+      #   -f: 强制删除，文件不存在也不报错
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_rsa

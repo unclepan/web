@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────
+# Docker Compose —— 生产部署编排
+#
+# 本项目（web）与后端 server 项目部署在同一台服务器上：
+#   - web 容器监听 3000 端口（宿主机映射到 8000，Nginx 反代 127.0.0.1:8000）
+#   - server 网关监听宿主机 8001 端口（Nginx 把 /api、/uploads 转发到此）
+#   - web 容器 → 后端网关通过 host.docker.internal:8001
+#     （两个 compose 项目独立部署，靠 host.docker.internal 跨栈通信）
+#
+# 常用命令：
+#   docker compose up -d --build       # 本地：构建并后台启动
+#   docker compose pull && docker compose up -d   # 远端：拉新镜像并滚动更新
+#   docker compose logs -f app          # 跟随日志
+#   docker compose down                 # 停止并清理容器
+# ─────────────────────────────────────────────────────────────
+
+services:
+  app:
+    # 镜像：远端用 IMAGE 指定 GHCR 上的精确 tag；本地未设置时回退到本地构建
+    image: ${IMAGE:-web:latest}
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # 容器名称（固定，方便 docker logs / docker exec 等命令引用）
+    container_name: web
+
+    restart: unless-stopped
+
+    # 环境变量
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
+      # SSR 服务端请求后端时使用的地址
+      # 前端与后端分属不同 docker-compose 项目，默认网络不互通，
+      # 通过 host.docker.internal 访问宿主机上映射的网关端口（8001）
+      # extra_hosts 已将 host.docker.internal 指向 host-gateway
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:8001}
+
+    # 端口映射：宿主机 8000 → 容器 3000
+    # Nginx 反向代理到 127.0.0.1:8000
+    ports:
+      - "${HOST_PORT:-8000}:3000"
+
+    # 让容器内可以通过 host.docker.internal 访问宿主机端口
+    # Linux 需要此配置；Mac/Windows Docker Desktop 自带此功能
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

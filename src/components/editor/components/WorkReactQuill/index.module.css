@@ -1,0 +1,128 @@
+/* 静态展示模式 */
+.static {
+  padding: 4px;
+  border: 1px dashed transparent;
+  font-size: 13px;
+  line-height: 1.42;
+  margin: 2px 0;
+  flex: 1;
+  border-radius: 4px;
+  cursor: text;
+}
+
+/* 选中 → 隐藏 static 层（保留 DOM 避免重建抖动） */
+.staticHidden {
+  display: none;
+}
+
+.static:hover {
+  border-color: #1677ff;
+}
+
+.static p {
+  margin: 0;
+}
+
+.static img {
+  max-width: 100% !important;
+}
+
+/* 静态模式下 header 字体大小 — 与 .ql-snow .ql-editor 保持一致
+   静态模式没有 .ql-snow 祖先，Quill 主题的 header 大小选择器匹配不上，需手动补 */
+.static h1 { font-size: 2em; }
+.static h2 { font-size: 1.5em; }
+.static h3 { font-size: 1.17em; }
+.static h4 { font-size: 1em; }
+.static h5 { font-size: 0.83em; }
+.static h6 { font-size: 0.67em; }
+
+/* 编辑模式 */
+.editor {
+  position: relative;
+  margin: 2px 0;
+  flex: 1;
+}
+
+/* 工具栏：浮动在编辑器上方 */
+.editor :global(.ql-toolbar) {
+  display: inline-block;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  border: none !important;
+  position: absolute;
+  top: -42px;
+  /* 跟随主题令牌（原为硬编码 #fff，暗色下会变成一块白补丁） */
+  background-color: var(--card);
+  min-width: 156px;
+  z-index: 10;
+}
+
+/* 下拉面板（字号 / 标题选择）同样跟随主题 */
+.editor :global(.ql-snow .ql-picker-options) {
+  background-color: var(--card);
+  border-color: var(--border) !important;
+}
+
+.editor :global(.ql-toolbar.ql-snow .ql-formats) {
+  margin-right: 0;
+}
+
+/* 编辑器容器：聚焦时蓝色边框 */
+.editor :global(.ql-container.ql-snow) {
+  border: 1px solid #1677ff !important;
+  border-radius: 4px;
+}
+
+.editor :global(.ql-editor) {
+  padding: 4px;
+}
+
+/* tooltip 文案覆盖 */
+.editor :global(.ql-snow .ql-tooltip[data-mode="link"]::before) {
+  content: " ";
+}
+
+.editor :global(.ql-snow .ql-tooltip::before) {
+  content: " ";
+}
+
+.editor :global(.ql-snow .ql-tooltip.ql-editing a.ql-action::after) {
+  content: "保存";
+}
+
+.editor :global(.ql-snow .ql-tooltip a.ql-action::after) {
+  content: "编辑";
+}
+
+.editor :global(.ql-snow .ql-tooltip a.ql-remove::before) {
+  content: "删除";
+}
+
+/* tooltip 浮层样式 */
+.editor :global(.ql-snow .ql-tooltip) {
+  left: 0 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  border: none !important;
+  z-index: 10;
+}
+
+/* header 下拉选项标签覆盖 */
+.editor :global(.ql-snow .ql-picker.ql-header) {
+  width: 64px;
+}
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-label)::before {
+  content: "NML";
+}
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-label[data-value="1"])::before,
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-item[data-value="1"])::before {
+  content: "H1";
+}
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-label[data-value="2"])::before,
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-item[data-value="2"])::before {
+  content: "H2";
+}
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-label[data-value="3"])::before,
+.editor :global(.ql-snow .ql-picker.ql-header .ql-picker-item[data-value="3"])::before {
+  content: "H3";
+}

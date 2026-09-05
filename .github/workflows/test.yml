@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────
+# CI Workflow: Lint + 单元测试
+# ─────────────────────────────────────────────────────────────
+# 触发时机：
+#   1. 向 main 分支 push 代码（且改动了 src/配置等关键路径）
+#   2. 向 main 分支发起 Pull Request（全量跑，不受路径过滤限制）
+# ─────────────────────────────────────────────────────────────
+name: test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - 'next.config.ts'
+      - 'postcss.config.mjs'
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: lint + unit test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit test
+        run: pnpm test:run
